@@ -1,0 +1,42 @@
+{
+  "tests": [
+    {
+      "name": "Get all employees",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Create new employee",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "login": "operator1",
+        "password": "password123",
+        "name": "Test Operator",
+        "role": "operator"
+      },
+      "expectedStatus": 201,
+      "expectedBody": {
+        "id": "number"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Update employee status",
+      "method": "PUT",
+      "path": "/",
+      "body": {
+        "id": 1,
+        "status": "online"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

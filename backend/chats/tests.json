@@ -1,0 +1,27 @@
+{
+  "tests": [
+    {
+      "name": "Get all chats",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Create new chat",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "user_name": "Test User",
+        "user_email": "test@example.com",
+        "message": "Hello, I need help"
+      },
+      "expectedStatus": 201,
+      "expectedBody": {
+        "chat_id": "number"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
