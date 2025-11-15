@@ -14,6 +14,7 @@ const AUTH_URL = `${API_BASE}/266387fb-4add-43d9-aa3a-5965e287a151`;
 const CHATS_URL = `${API_BASE}/4aa94d3b-a429-4dfe-a6e5-329b8b09d317`;
 const MESSAGES_URL = `${API_BASE}/fd8314a4-0d2b-4636-b3c6-afd2ab8750de`;
 const EMPLOYEES_URL = `${API_BASE}/2a92d690-5999-45f3-854b-5ed8accefa75`;
+const HISTORY_URL = `${API_BASE}/d1128593-3ef8-4ab8-a946-44fabaadb4d9`;
 
 interface Employee {
   id: number;
@@ -31,6 +32,16 @@ interface Chat {
   assigned_to: number | null;
   operator_name: string | null;
   created_at: string;
+  is_closed?: boolean;
+  resolution_status?: string | null;
+}
+
+interface HistoryItem {
+  id: number;
+  action: string;
+  details: string;
+  created_at: string;
+  employee_name: string | null;
 }
 
 interface Message {
@@ -53,6 +64,8 @@ export default function Index() {
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   
   const [newEmployee, setNewEmployee] = useState({ login: '', password: '', name: '', role: 'operator' });
 
@@ -66,8 +79,15 @@ export default function Index() {
   useEffect(() => {
     if (selectedChat) {
       loadMessages(selectedChat.id);
+      loadHistory(selectedChat.id);
     }
   }, [selectedChat]);
+
+  const loadHistory = async (chatId: number) => {
+    const res = await fetch(`${HISTORY_URL}?chat_id=${chatId}`);
+    const data = await res.json();
+    setHistory(data);
+  };
 
   const loadEmployees = async () => {
     const res = await fetch(EMPLOYEES_URL);
@@ -77,7 +97,7 @@ export default function Index() {
 
   const loadChats = async () => {
     const url = currentUser?.role === 'operator' 
-      ? `${CHATS_URL}?operator_id=${currentUser.id}`
+      ? `${CHATS_URL}?operator_id=${currentUser.id}&role=operator`
       : CHATS_URL;
     const res = await fetch(url);
     const data = await res.json();
@@ -161,6 +181,29 @@ export default function Index() {
       loadMessages(selectedChat.id);
     } catch (error) {
       toast.error('Ошибка отправки сообщения');
+    }
+  };
+
+  const handleCloseChat = async (resolution: 'solved' | 'unsolved') => {
+    if (!selectedChat || !currentUser) return;
+    
+    try {
+      await fetch(CHATS_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'close',
+          chat_id: selectedChat.id,
+          resolution_status: resolution,
+          employee_id: currentUser.id
+        })
+      });
+      
+      toast.success(resolution === 'solved' ? 'Чат закрыт как решенный' : 'Чат закрыт как нерешенный');
+      setSelectedChat(null);
+      loadChats();
+    } catch (error) {
+      toast.error('Ошибка закрытия чата');
     }
   };
 
@@ -347,15 +390,20 @@ export default function Index() {
                             onClick={() => setSelectedChat(chat)}
                             className={`p-3 rounded-lg cursor-pointer transition-colors ${
                               selectedChat?.id === chat.id ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'
-                            }`}
+                            } ${chat.is_closed ? 'opacity-60' : ''}`}
                           >
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
-                                <p className="font-medium">{chat.user_name}</p>
+                                <p className="font-medium flex items-center gap-2">
+                                  {chat.user_name}
+                                  {chat.is_closed && (
+                                    <Icon name={chat.resolution_status === 'solved' ? 'CheckCircle' : 'XCircle'} size={14} />
+                                  )}
+                                </p>
                                 <p className="text-xs opacity-70">{chat.user_email}</p>
                               </div>
-                              <Badge variant={chat.status === 'waiting' ? 'destructive' : 'default'}>
-                                {chat.status}
+                              <Badge variant={chat.status === 'waiting' ? 'destructive' : chat.is_closed ? 'secondary' : 'default'}>
+                                {chat.is_closed ? 'закрыт' : chat.status}
                               </Badge>
                             </div>
                             {chat.operator_name && (
@@ -372,47 +420,116 @@ export default function Index() {
                 </Card>
 
                 <Card className="lg:col-span-2">
-                  <CardHeader>
+                  <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle className="text-lg">
                       {selectedChat ? `Чат с ${selectedChat.user_name}` : 'Выберите чат'}
                     </CardTitle>
+                    {selectedChat && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setShowHistory(!showHistory)}
+                        >
+                          <Icon name="Clock" size={16} className="mr-1" />
+                          История
+                        </Button>
+                      </div>
+                    )}
                   </CardHeader>
                   <CardContent>
                     {selectedChat ? (
                       <div className="space-y-4">
-                        <ScrollArea className="h-[480px] pr-4">
-                          <div className="space-y-3">
-                            {messages.map(msg => (
-                              <div
-                                key={msg.id}
-                                className={`p-3 rounded-lg ${
-                                  msg.sender_type === 'user'
-                                    ? 'bg-secondary ml-0 mr-12'
-                                    : 'bg-primary text-primary-foreground ml-12 mr-0'
-                                }`}
-                              >
-                                <p className="text-sm font-medium opacity-70">
-                                  {msg.sender_type === 'user' ? selectedChat.user_name : msg.sender_name}
-                                </p>
-                                <p>{msg.message}</p>
-                                <p className="text-xs opacity-50 mt-1">
-                                  {new Date(msg.created_at).toLocaleString('ru-RU')}
+                        {showHistory ? (
+                          <ScrollArea className="h-[480px] pr-4">
+                            <div className="space-y-2">
+                              {history.map(item => (
+                                <div key={item.id} className="p-3 bg-secondary rounded-lg">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <p className="font-medium text-sm">{item.action}</p>
+                                      <p className="text-xs opacity-70">{item.details}</p>
+                                      {item.employee_name && (
+                                        <p className="text-xs opacity-60 mt-1">
+                                          <Icon name="User" size={12} className="inline mr-1" />
+                                          {item.employee_name}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <p className="text-xs opacity-50">
+                                      {new Date(item.created_at).toLocaleString('ru-RU')}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <>
+                            <ScrollArea className="h-[420px] pr-4">
+                              <div className="space-y-3">
+                                {messages.map(msg => (
+                                  <div
+                                    key={msg.id}
+                                    className={`p-3 rounded-lg ${
+                                      msg.sender_type === 'user'
+                                        ? 'bg-secondary ml-0 mr-12'
+                                        : 'bg-primary text-primary-foreground ml-12 mr-0'
+                                    }`}
+                                  >
+                                    <p className="text-sm font-medium opacity-70">
+                                      {msg.sender_type === 'user' ? selectedChat.user_name : msg.sender_name}
+                                    </p>
+                                    <p>{msg.message}</p>
+                                    <p className="text-xs opacity-50 mt-1">
+                                      {new Date(msg.created_at).toLocaleString('ru-RU')}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                            {!selectedChat.is_closed && (
+                              <>
+                                <form onSubmit={handleSendMessage} className="flex gap-2">
+                                  <Input
+                                    value={newMessage}
+                                    onChange={e => setNewMessage(e.target.value)}
+                                    placeholder="Введите сообщение..."
+                                    className="flex-1"
+                                  />
+                                  <Button type="submit">
+                                    <Icon name="Send" size={18} />
+                                  </Button>
+                                </form>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="default"
+                                    onClick={() => handleCloseChat('solved')}
+                                    className="flex-1"
+                                  >
+                                    <Icon name="CheckCircle" size={16} className="mr-2" />
+                                    Решено
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleCloseChat('unsolved')}
+                                    className="flex-1"
+                                  >
+                                    <Icon name="XCircle" size={16} className="mr-2" />
+                                    Не решено
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                            {selectedChat.is_closed && (
+                              <div className="p-4 bg-secondary rounded-lg text-center">
+                                <p className="text-sm font-medium">
+                                  Чат закрыт как {selectedChat.resolution_status === 'solved' ? 'решенный' : 'нерешенный'}
                                 </p>
                               </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                        <form onSubmit={handleSendMessage} className="flex gap-2">
-                          <Input
-                            value={newMessage}
-                            onChange={e => setNewMessage(e.target.value)}
-                            placeholder="Введите сообщение..."
-                            className="flex-1"
-                          />
-                          <Button type="submit">
-                            <Icon name="Send" size={18} />
-                          </Button>
-                        </form>
+                            )}
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div className="h-[540px] flex items-center justify-center text-muted-foreground">
@@ -548,9 +665,14 @@ export default function Index() {
                         onClick={() => setSelectedChat(chat)}
                         className={`p-3 rounded-lg cursor-pointer transition-colors ${
                           selectedChat?.id === chat.id ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'
-                        }`}
+                        } ${chat.is_closed ? 'opacity-50' : ''}`}
                       >
-                        <p className="font-medium">{chat.user_name}</p>
+                        <p className="font-medium flex items-center gap-2">
+                          {chat.user_name}
+                          {chat.is_closed && (
+                            <Icon name={chat.resolution_status === 'solved' ? 'CheckCircle' : 'XCircle'} size={14} />
+                          )}
+                        </p>
                         <p className="text-xs opacity-70">{chat.user_email}</p>
                       </div>
                     ))}
@@ -560,47 +682,114 @@ export default function Index() {
             </Card>
 
             <Card className="lg:col-span-2">
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-lg">
                   {selectedChat ? `Чат с ${selectedChat.user_name}` : 'Выберите чат'}
                 </CardTitle>
+                {selectedChat && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowHistory(!showHistory)}
+                  >
+                    <Icon name="Clock" size={16} className="mr-1" />
+                    История
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
                 {selectedChat ? (
                   <div className="space-y-4">
-                    <ScrollArea className="h-[480px] pr-4">
-                      <div className="space-y-3">
-                        {messages.map(msg => (
-                          <div
-                            key={msg.id}
-                            className={`p-3 rounded-lg ${
-                              msg.sender_type === 'user'
-                                ? 'bg-secondary ml-0 mr-12'
-                                : 'bg-primary text-primary-foreground ml-12 mr-0'
-                            }`}
-                          >
-                            <p className="text-sm font-medium opacity-70">
-                              {msg.sender_type === 'user' ? selectedChat.user_name : 'Вы'}
-                            </p>
-                            <p>{msg.message}</p>
-                            <p className="text-xs opacity-50 mt-1">
-                              {new Date(msg.created_at).toLocaleString('ru-RU')}
+                    {showHistory ? (
+                      <ScrollArea className="h-[480px] pr-4">
+                        <div className="space-y-2">
+                          {history.map(item => (
+                            <div key={item.id} className="p-3 bg-secondary rounded-lg">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <p className="font-medium text-sm">{item.action}</p>
+                                  <p className="text-xs opacity-70">{item.details}</p>
+                                  {item.employee_name && (
+                                    <p className="text-xs opacity-60 mt-1">
+                                      <Icon name="User" size={12} className="inline mr-1" />
+                                      {item.employee_name}
+                                    </p>
+                                  )}
+                                </div>
+                                <p className="text-xs opacity-50">
+                                  {new Date(item.created_at).toLocaleString('ru-RU')}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    ) : (
+                      <>
+                        <ScrollArea className="h-[420px] pr-4">
+                          <div className="space-y-3">
+                            {messages.map(msg => (
+                              <div
+                                key={msg.id}
+                                className={`p-3 rounded-lg ${
+                                  msg.sender_type === 'user'
+                                    ? 'bg-secondary ml-0 mr-12'
+                                    : 'bg-primary text-primary-foreground ml-12 mr-0'
+                                }`}
+                              >
+                                <p className="text-sm font-medium opacity-70">
+                                  {msg.sender_type === 'user' ? selectedChat.user_name : 'Вы'}
+                                </p>
+                                <p>{msg.message}</p>
+                                <p className="text-xs opacity-50 mt-1">
+                                  {new Date(msg.created_at).toLocaleString('ru-RU')}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                        {!selectedChat.is_closed && (
+                          <>
+                            <form onSubmit={handleSendMessage} className="flex gap-2">
+                              <Input
+                                value={newMessage}
+                                onChange={e => setNewMessage(e.target.value)}
+                                placeholder="Введите сообщение..."
+                                className="flex-1"
+                              />
+                              <Button type="submit">
+                                <Icon name="Send" size={18} />
+                              </Button>
+                            </form>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="default"
+                                onClick={() => handleCloseChat('solved')}
+                                className="flex-1"
+                              >
+                                <Icon name="CheckCircle" size={16} className="mr-2" />
+                                Решено
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => handleCloseChat('unsolved')}
+                                className="flex-1"
+                              >
+                                <Icon name="XCircle" size={16} className="mr-2" />
+                                Не решено
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                        {selectedChat.is_closed && (
+                          <div className="p-4 bg-secondary rounded-lg text-center">
+                            <p className="text-sm font-medium">
+                              Чат закрыт как {selectedChat.resolution_status === 'solved' ? 'решенный' : 'нерешенный'}
                             </p>
                           </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                    <form onSubmit={handleSendMessage} className="flex gap-2">
-                      <Input
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        placeholder="Введите сообщение..."
-                        className="flex-1"
-                      />
-                      <Button type="submit">
-                        <Icon name="Send" size={18} />
-                      </Button>
-                    </form>
+                        )}
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="h-[540px] flex items-center justify-center text-muted-foreground">

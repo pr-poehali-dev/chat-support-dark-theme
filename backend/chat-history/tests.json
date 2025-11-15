@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get chat history",
+      "method": "GET",
+      "path": "/?chat_id=1",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    }
+  ]
+}
